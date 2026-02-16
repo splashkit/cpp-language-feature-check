@@ -10,7 +10,6 @@ import traceback
 import os.path
 
 # ==================== Constants ======================
-RULES_PATH = "rules.json"
 
 # Return codes
 SUCCESS = 0
@@ -157,20 +156,21 @@ def main_inner(source_file: str, ruleset: str, output_style: str, rules_path: st
 
 def main() -> None:
     try:
-        if len(sys.argv) != 4:
-            print(f"Usage: {sys.argv[0]} <source-file> <rules> <output-style {{id=ID's only (comma delimited)|desc=Descriptions only (newline delimited)}}>")
+        if len(sys.argv) != 5:
+            print(f"Usage: {sys.argv[0]} <source-file> <rules-file> <rules> <output-style {{id=ID's only (comma delimited)|desc=Descriptions only (newline delimited)}}>")
             sys.exit(CODE_CHECKING_FAILED)
 
         source_file = sys.argv[1]
-        ruleset = sys.argv[2]
-        output_style = sys.argv[3]
+        rules_file = sys.argv[2]
+        ruleset = sys.argv[3]
+        output_style = sys.argv[4]
 
         # check inputs
-        assert os.path.isfile(RULES_PATH), f"Rule set file doesn't exist {RULES_PATH}"
+        assert os.path.isfile(rules_file), f"Rule set file doesn't exist {rules_file}"
         assert os.path.isfile(source_file), f"Input source file doesn't exist: {source_file}"
         assert output_style=="id" or output_style == "desc", f"Invalid output-style {output_style}"
 
-        output = main_inner(source_file, ruleset, output_style, RULES_PATH)
+        output = main_inner(source_file, ruleset, output_style, rules_file)
 
         # Print the actual result on stdout
         print(output)
