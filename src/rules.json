@@ -77,7 +77,8 @@
       },
       {
         "queries": ["cxxThisExpr(isExpansionInMainFile(), unless(anything()))"],
-        "id": "This - NOTE: unless(isImplicit()) doesn't work on my machine, so for now this is nullified with anything()",
+        "id": "This",
+        "comment": "NOTE: unless(isImplicit()) doesn't work on my machine, so for now this is nullified with anything()",
         "description": "No need to use `this` yet."
       },
       {

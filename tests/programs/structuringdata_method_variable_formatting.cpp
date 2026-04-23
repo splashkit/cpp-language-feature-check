@@ -14,6 +14,13 @@ struct user_info
     }
 };
 
+void write_user_info(const user_info& info)
+{
+    write_line(info.name);
+    write_line(info.favourite_tv_show);
+    write_line(info.favourite_meal);
+}
+
 int main()
 {
     user_info user;

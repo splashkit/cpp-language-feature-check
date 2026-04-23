@@ -7,6 +7,20 @@ struct user_info
     string favourite_meal;
 };
 
+void clear_user_info(user_info& info)
+{
+    info.name = "";
+    info.favourite_tv_show = "";
+    info.favourite_meal = "";
+}
+
+void write_user_info(const user_info& info)
+{
+    write_line(info.name);
+    write_line(info.favourite_tv_show);
+    write_line(info.favourite_meal);
+}
+
 int main()
 {
     user_info user;
@@ -43,6 +57,10 @@ int main()
     write_line("Anyway bye!");
     delay(200);
     write_line("\nThe bot has left the chat.");
+
+    write_user_info(user);
+    clear_user_info(user);
+    write_user_info(user);
 
     return 0;
 }

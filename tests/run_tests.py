@@ -36,7 +36,7 @@ tests = [
 
     ["chapter_06_structuring_data.cpp", "chapter_06_structuring_data", ""],
     ["chapter_06_structuring_data.cpp", "chapter_10_pointers_and_lists", ""],
-    ["chapter_06_structuring_data.cpp", "chapter_02_sequence", "Struct, Variable, FunctionReturnValue"],
+    ["chapter_06_structuring_data.cpp", "chapter_02_sequence", "Struct, Function, Variable, FunctionReturnValue"],
     ["chapter_06_structuring_data.cpp", "chapter_05_structuring_code", "Struct"],
 
     ["chapter_07_handling_multiples.cpp", "chapter_07_handling_multiples", ""],
@@ -68,7 +68,7 @@ tests = [
     ["new_and_goto.cpp", "chapter_06_structuring_data", "Goto, Pointer, CppNew"],
     ["missing_header.cpp", "chapter_03_data", "Struct"],
     ["missing_header.cpp", "chapter_06_structuring_data", ""],
-    ["function_expr_param.cpp", "chapter_02_sequence", "FunctionReturnValue"],
+    ["function_expr_param.cpp", "chapter_02_sequence", "ColorFunctionUsage, FunctionReturnValue"],
 ]
 
 print("============= Running Tests =============")
