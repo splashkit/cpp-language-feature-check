@@ -63,7 +63,7 @@ tests = [
     # Misc Checks
     ["stdin.cpp", "base_checks", "CppIO"],
     ["printf.cpp", "base_checks", "Printf"],
-    ["global_const_unformatted.cpp", "base_checks", "FormattingConstant, FormattingVariable, GlobalVariable"],
+    ["global_const_unformatted.cpp", "base_checks", "FormattingConstant, FormattingVariableAsConst, FormattingVariable, GlobalVariable"],
     ["structuringdata_method_variable_formatting.cpp", "chapter_06_structuring_data", "FormattingVariable, Method"],
     ["new_and_goto.cpp", "chapter_06_structuring_data", "Goto, Pointer, CppNew"],
     ["missing_header.cpp", "chapter_03_data", "Struct"],
