@@ -26,21 +26,7 @@ disable output detailed-ast
 disable output dump
 """
 
-# ==================== UUID Utils ======================
-# Divides up sets of queries
-def get_query_set_splitter_prefix(run_uuid: str) -> str:
-    return run_uuid + "SET"
-
-# Divides up the queries within a set
-def get_query_splitter_prefix(run_uuid: str, match_id: str) -> str:
-    return run_uuid + match_id + "QUERY"
-
-# Used to locate matches from a query
-def get_query_matcher(run_uuid: str, match_id: str) -> str:
-    return run_uuid + match_id + "MATCH"
-
 # ==================== Types ======================
-
 @dataclass
 class MatchQuerySet:
     queries: List[str]
@@ -48,16 +34,9 @@ class MatchQuerySet:
     description: str
     comment: str | None = None # For leaving comments in the json
 
-    def get_query_set_splitter(self, run_uuid: str) -> str:
-        return get_query_set_splitter_prefix(run_uuid) + self.id
-
-    def get_query_splitter(self, run_uuid: str, query_index: int) -> str:
-        return get_query_splitter_prefix(run_uuid, self.id) + str(query_index)
-
-    def get_query_matcher(self, run_uuid: str) -> str:
-        return get_query_matcher(run_uuid, self.id)
-
 # ==================== Clang Query Utils ======================
+
+MATCHES_REGEX = re.compile(r'^(\d+)\s+match(?:es)?.{0,3}$')
 
 # Run clang-query and return the result
 
@@ -83,90 +62,59 @@ def clang_query(source_file: str, query: str) -> str:
 
     return result.stdout
 
-# Split a list of strings into a dict based on regex delimiter matches.
-# Uses the first matching group as the key.
-def split_list_by_regex_into_map(output: List[str], pattern: str) -> Dict[str, List[str]]:
-    set_lines = {}
-    current_set = None
+# Extract "0 matches, 1 match, etc"
+def clang_query_extract_matches(output: List[str]) -> List[int]:
+    extracted_numbers = []
 
-    for item in output:
-        match = re.match(pattern, item)
-
+    for line in output:
+        match = MATCHES_REGEX.match(line)
         if match:
-            match_query_set_id = match[1]
-            if match_query_set_id not in set_lines:
-                set_lines[match_query_set_id] = []
-            current_set = set_lines[match_query_set_id]
-        elif current_set != None:
-            current_set.append(item) # Add to the current sub-list
+            number = int(match.group(1))
+            extracted_numbers.append(number)
 
-    return set_lines
+    return extracted_numbers
 
-# Parse clang-query output into match results.
-# Returns list of (MatchQuerySet, formatted_error_lines) tuples for sets that had matches.
-def clang_query_extract_matches(output: List[str], run_uuid: str, match_query_sets: List[MatchQuerySet]) -> List[Tuple[MatchQuerySet, List[str]]]:
-
-    # Split output into rule sets, then into individual queries within each set
-    match_sets = split_list_by_regex_into_map(output, r".*" + get_query_set_splitter_prefix(run_uuid) + r"(.+)")
-
-    for key in match_sets.keys():
-        match_sets[key] = split_list_by_regex_into_map(
-            match_sets[key], r".*" + get_query_splitter_prefix(run_uuid, key) + r"(\d+)"
-        )
-
+def clang_query_extract_messages(output: List[str], run_uuid: str, match_query_sets: List[MatchQuerySet]) -> str:
     match_query_set_lookup = {m.id : m for m in match_query_sets}
 
-    # Assemble final matches
-    matched = []
-    for set_key, queries in match_sets.items():
-        if set_key not in match_query_set_lookup:
-            raise RuntimeError(f"Unknown query set ID in output: {set_key}")
+    result = []
+    for line in output:
+        # Filter out newlines, "Match #<n>" lines, or "<n> match(es)" lines
+        if line == "" or "Match #" in line or MATCHES_REGEX.match(line):
+            continue
 
-        match_query_set = match_query_set_lookup[set_key]
+        # Identify lines like:
+        # `/home/user/myprogram/global_const_unformatted.cpp:10:15: note: "LANGCHECK[uuid]FormattingConstant" binds here`
+        # and transform them into:
+        # `global_const_unformatted.cpp:10:15: error: Double check how you've formatted your constants (make sure to use UPPER_CASE).`
+        if run_uuid in line:
+            newline = "\n" if len(result) > 0 else ""
 
-        set_match_count = 0
-        set_lines = []
+            # Extract match rule id
+            match_id = re.search(
+                run_uuid + r'(\w*)', line
+            ).group(1)
 
-        for query_ix, lines in queries.items():
-            # Filter empty lines and "Match #" headers
-            lines = [x for x in lines if x != "" and "Match #" not in x]
+            if match_id not in match_query_set_lookup:
+                raise RuntimeError(f"Unknown match rule set ID in output: {match_id}")
 
-            count_match = None if len(lines) < 1 else re.search(r'(\d+)\s+match(?:es)?', lines[-1])
+            match_query_set = match_query_set_lookup[match_id]
 
-            # Last line should contain the match count. If not, the match failed to run.
-            if count_match == None:
-                raise Exception(
-                    f"Error: Failed to run {set_key} Query #{query_ix}:\n    " +
-                    "\n    ".join(lines)
-                )
+            # Extract file:line:col location if present
+            # The regex hopefully allows some slight formatting changes across
+            # versions.
+            error_loc = re.search(
+                r'([^/:]+\.[^/:]+(?=[ :])(:\s*\d+\s*|)(:\s*\d+\s*|))', line
+            )
 
-            count = int(count_match.group(1))
-            set_match_count += count
+            if error_loc:
+                line = f"{newline}{error_loc.group(1)}: error: {match_query_set.description}"
+            else:
+                line = f"{newline}error: {match_query_set.description}"
 
-            # Format match lines (exclude the count line)
-            match_tag = match_query_set.get_query_matcher(run_uuid)
-            for i, line in enumerate(lines[:-1]):
-                if match_tag in line:
-                    newline = "\n" if i != 0 else ""
-                    # Extract file:line:col location if present
-                    # The regex hopefully allows some slight formatting changes across
-                    # versions.
-                    error_loc = re.search(
-                        r'([^/:]+\.[^/:]+(?=[ :])(:\s*\d+\s*|)(:\s*\d+\s*|))', line
-                    )
-                    if error_loc:
-                        set_lines.append(
-                            f"{newline}{error_loc.group(1)}: error: {match_query_set.description}"
-                        )
-                    else:
-                        set_lines.append(f"{newline}error: {match_query_set.description}")
-                else:
-                    set_lines.append(line)
+        result.append(line)
 
-        if set_match_count > 0:
-            matched.append((match_query_set, set_lines))
-
-    return matched
+    return "\n".join(result)
 
 # ==================== Rule Loading ======================
 
@@ -194,10 +142,7 @@ def resolve_rules(
 
 def check_usage(source_file: str, match_query_sets: List[MatchQuerySet]) -> None:
     # Runs all the match queries against a file.
-
     # This is done in a single call to clang-query for efficiency.
-    # Uses UUID-tagged error messages as delimiters to parse clang-query output,
-    # since there's no built-in way to separate results from multiple queries
 
     # Unique prefix so we avoid collisions with student code
     run_uuid = "LANGCHECK" + uuid.uuid4().hex
@@ -205,45 +150,52 @@ def check_usage(source_file: str, match_query_sets: List[MatchQuerySet]) -> None
     # Start by joining the queries up
     list_of_queries = []
     for query_set in match_query_sets:
-        # This line deliberately triggers a single line error that we can use to split the output
-        # There isn't any way to just "print", so this will have to do...
-        list_of_queries.append(query_set.get_query_set_splitter(run_uuid))
-
         for i, query in enumerate(query_set.queries):
-            # Same here
-            list_of_queries.append(query_set.get_query_splitter(run_uuid, i))
-
-            # The actual query - bind it with a tag so we can find matches easily later
-            list_of_queries.append(f"match {query}.bind('{query_set.get_query_matcher(run_uuid)}')")
+            # Bind the query it with a tag so we can find matches easily later
+            list_of_queries.append(f"match {query}.bind('{run_uuid + query_set.id}')")
 
 
     # Get the results from clang-query
     combined_query = "\n".join(list_of_queries)
-    output = clang_query(source_file, combined_query)
+    output = clang_query(source_file, combined_query).split("\n")
+    # Find the number of matches for each query
+    match_counts = clang_query_extract_matches(output)
+    # There should be the same number as there were match statements
+    expected_match_length = sum([len(x.queries) for x in match_query_sets])
 
-    try:
-        # Split the lines up into matches
-        matched = clang_query_extract_matches(output.split("\n"), run_uuid, match_query_sets)
-
-    except Exception:
-        print("\n\nThere is likely a syntax error in the queries - see full output below.", file=sys.stderr)
+    if len(match_counts) != expected_match_length:
+        # If not, something is wrong, abort checking
+        print(f"Error: Mismatch between expected result count and clang-query output.", file=sys.stderr)
+        print(f"Expected {expected_match_length} match counts, got {len(match_counts)}.", file=sys.stderr)
+        print("There is likely a syntax error in the queries - see output below.", file=sys.stderr)
         print(f"\n==== clang-query Input ====\n{combined_query}\n============================", file=sys.stderr)
         print(f"\n==== clang-query Output ====\n{output}\n============================", file=sys.stderr)
-        print(f"\n\nAn error occurred! This was the full debug log - check the last few lines of error output for specific info.", file=sys.stderr)
-        raise
+        sys.exit(CODE_CHECKING_FAILED)
 
-    return matched
+    # Now we can step through and pair up each match count with its associated MatchQuerySet
+    idx = 0
+    matched = []
+    for matchQuerySet in match_query_sets:
+        total_matches = sum(match_counts[idx : idx + len(matchQuerySet.queries)])
+        idx += len(matchQuerySet.queries)
+
+        if total_matches > 0:
+            matched.append(matchQuerySet)
+
+    messages = clang_query_extract_messages(output, run_uuid, match_query_sets)
+
+    return matched, messages
 
 # ==================== Output Formatting ======================
 
-def format_output_ids(matched: List[MatchQuerySet]) -> str:
-    return ", ".join([x[0].id for x in matched])
+def format_output_ids(matched: List[MatchQuerySet], messages : str) -> str:
+    return ", ".join([x.id for x in matched])
 
-def format_output_full_error_report(matched: List[MatchQuerySet]) -> str:
-    return "\n\n".join(["\n".join(x[1]) for x in matched])
+def format_output_full_error_report(matched: List[MatchQuerySet], messages : str) -> str:
+    return messages # this function just exists for consistency...
 
-def format_output_brief_descriptions(matched: List[MatchQuerySet]) -> str:
-    return "\n".join([x[0].description for x in matched])
+def format_output_brief_descriptions(matched: List[MatchQuerySet], messages : str) -> str:
+    return "\n".join([x.description for x in matched])
 
 # =========== Main Real (extracted so it can be tested...) ===========
 
@@ -251,14 +203,14 @@ def main_inner(source_file: str, ruleset: str, output_style: str, rules_path: st
     rules = load_rules(rules_path)
     match_query_sets = resolve_rules(rules, ruleset)
 
-    matches = check_usage(source_file, match_query_sets)
+    matches, messages = check_usage(source_file, match_query_sets)
 
     if output_style == "id":
-        return format_output_ids(matches)
+        return format_output_ids(matches, messages)
     elif output_style == "desc":
-        return format_output_full_error_report(matches)
+        return format_output_full_error_report(matches, messages)
     elif output_style == "brief":
-        return format_output_brief_descriptions(matches)
+        return format_output_brief_descriptions(matches, messages)
 
 # ==================== Command Line Usage ======================
 
